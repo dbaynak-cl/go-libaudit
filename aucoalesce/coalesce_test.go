@@ -51,7 +51,7 @@ func TestCoalesceMessages(t *testing.T) {
 
 type testEvent struct {
 	name     string
-	messages []*auparse.AuditMessage
+	messages []auparse.AuditMessage
 }
 
 type testEventOutput struct {
@@ -132,7 +132,7 @@ func readEventsFromYAML(t testing.TB, name string) []testEvent {
 	// Create test cases from YAML file.
 	var testEvents []testEvent
 	for name, messages := range cases {
-		var msgs []*auparse.AuditMessage
+		var msgs []auparse.AuditMessage
 
 		s := bufio.NewScanner(strings.NewReader(messages.(string)))
 		for s.Scan() {

@@ -31,11 +31,11 @@ import (
 )
 
 type testStream struct {
-	events  [][]*auparse.AuditMessage
+	events  [][]auparse.AuditMessage
 	dropped int
 }
 
-func (s *testStream) ReassemblyComplete(msgs []*auparse.AuditMessage) {
+func (s *testStream) ReassemblyComplete(msgs []auparse.AuditMessage) {
 	s.events = append(s.events, msgs)
 }
 
@@ -113,7 +113,7 @@ func testReassembler(t testing.TB, file string, expected *results) {
 	}
 	defer f.Close()
 
-	stream := &testStream{events: make([][]*auparse.AuditMessage, 0, 10)}
+	stream := &testStream{events: make([][]auparse.AuditMessage, 0, 10)}
 	reassmbler, err := NewReassembler(5, 2*time.Second, stream)
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +168,7 @@ func Benchmark_eventList_put(b *testing.B) {
 		if i%2 == 0 {
 			msgType = auparse.AUDIT_EOE
 		}
-		eventList.Put(&auparse.AuditMessage{
+		eventList.Put(auparse.AuditMessage{
 			Sequence:   rand.Uint32(),
 			RecordType: msgType,
 		})
@@ -190,7 +190,7 @@ func generateEvents() *eventList {
 		if i%2 == 0 {
 			msgType = auparse.AUDIT_EOE
 		}
-		eventList.Put(&auparse.AuditMessage{
+		eventList.Put(auparse.AuditMessage{
 			Sequence:   rand.Uint32(),
 			RecordType: msgType,
 		})

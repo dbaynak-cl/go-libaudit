@@ -121,7 +121,7 @@ type streamHandler struct {
 	output io.Writer
 }
 
-func (s *streamHandler) ReassemblyComplete(msgs []*auparse.AuditMessage) {
+func (s *streamHandler) ReassemblyComplete(msgs []auparse.AuditMessage) {
 	s.outputMultipleMessages(msgs)
 }
 
@@ -129,11 +129,11 @@ func (s *streamHandler) EventsLost(count int) {
 	log.Printf("Detected the loss of %v sequences.", count)
 }
 
-func (s *streamHandler) outputMultipleMessages(msgs []*auparse.AuditMessage) {
+func (s *streamHandler) outputMultipleMessages(msgs []auparse.AuditMessage) {
 	if !*interpret {
 		s.output.Write([]byte("---\n"))
 		for _, m := range msgs {
-			s.outputSingleMessage(m)
+			s.outputSingleMessage(&m)
 		}
 		return
 	}

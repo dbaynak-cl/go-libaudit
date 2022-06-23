@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/pprof"
 	"strconv"
 	"testing"
 	"time"
@@ -74,7 +75,7 @@ func TestNormalizeAuditMessage(t *testing.T) {
 }
 
 func TestParseAuditHeader(t *testing.T) {
-	ts, seq, end, err := parseAuditHeader([]byte(syscallMsg))
+	ts, seq, end, err := parseAuditHeader(syscallMsg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,33 +108,33 @@ func TestGetAuditMessageType(t *testing.T) {
 func TestExtractKeyValuePairs(t *testing.T) {
 	tests := []struct {
 		in  string
-		out map[string]*field
+		out map[string]field
 	}{
 		{
 			`a=v b= b1='' b2="" c=? c1="?" c2='?' d=?, d1="?," d2='?,' e=(null) e1="(null)" e2='(null)'`,
-			map[string]*field{
+			map[string]field{
 				"a": newField("v"),
 			},
 		},
 		{
 			`msg=`,
-			map[string]*field{},
+			map[string]field{},
 		},
 		{
 			`msg=a=b`,
-			map[string]*field{"a": newField("b")},
+			map[string]field{"a": newField("b")},
 		},
 		{
 			`msg="a=b"`,
-			map[string]*field{"a": newField("b")},
+			map[string]field{"a": newField("b")},
 		},
 		{
 			`msg="a='a b'"`,
-			map[string]*field{"a": {"'a b'", "a b"}},
+			map[string]field{"a": {"'a b'", "a b"}},
 		},
 		{
 			`argc=4 a0="cat" a1="btest=test" a2="-f" a3="regex=8"'`,
-			map[string]*field{
+			map[string]field{
 				"argc": newField("4"),
 				"a0":   {`"cat"`, `cat`},
 				"a1":   {`"btest=test"`, `btest=test`},
@@ -143,28 +144,28 @@ func TestExtractKeyValuePairs(t *testing.T) {
 		},
 		{
 			`x='grep "test" file' y=z`,
-			map[string]*field{
+			map[string]field{
 				"x": {`'grep "test" file'`, `grep "test" file`},
 				"y": newField("z"),
 			},
 		},
 		{
 			`x="grep 'test' file" y=z`,
-			map[string]*field{
+			map[string]field{
 				"x": {`"grep 'test' file"`, `grep 'test' file`},
 				"y": newField("z"),
 			},
 		},
 		{
 			`x="grep \"test\" file" y=z`,
-			map[string]*field{
+			map[string]field{
 				"x": {`"grep \"test\" file"`, `grep \"test\" file`},
 				"y": newField("z"),
 			},
 		},
 		{
 			`x='grep \'test\' file' y=z`,
-			map[string]*field{
+			map[string]field{
 				"x": {`'grep \'test\' file'`, `grep \'test\' file`},
 				"y": newField("z"),
 			},
@@ -172,7 +173,7 @@ func TestExtractKeyValuePairs(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		out := map[string]*field{}
+		out := map[string]field{}
 		extractKeyValuePairs(tc.in, out)
 		assert.Equal(t, tc.out, out, "failed on: %v", tc.in)
 	}
@@ -180,7 +181,7 @@ func TestExtractKeyValuePairs(t *testing.T) {
 
 func Benchmark_extractKeyValuePairs(b *testing.B) {
 	const msg = `argc=4 a0="cat" a1="btest=test" a2="-f" a3="regex=8"' a4="qwerty asdfg \"zxcv\" asdf"`
-	out := make(map[string]*field)
+	out := make(map[string]field)
 	for i := 0; i < b.N; i++ {
 		extractKeyValuePairs(msg, out)
 	}
@@ -209,11 +210,64 @@ func BenchmarkParseLogLineFromFiles(b *testing.B) {
 	}
 	for i := 0; i < b.N; i++ {
 		for _, line := range lines {
-			event, _ := ParseLogLine(line)
-			if event != nil {
+			event, err := ParseLogLine(line)
+			if err == nil {
 				_ = NewStoredAuditMessage(event)
 			}
 		}
+	}
+}
+
+func BenchmarkParseLogLineFromFiles1(b *testing.B) {
+	mem, err := os.Create("./heap.pprof." + time.Now().Format(time.RFC3339))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer mem.Close()
+	cpu, err := os.Create("./cpu.pprof." + time.Now().Format(time.RFC3339))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer cpu.Close()
+	if err := pprof.StartCPUProfile(cpu); err != nil {
+		b.Fatal(err)
+	}
+	defer pprof.StopCPUProfile()
+
+	lines := make([]string, 0)
+	files, err := filepath.Glob("testdata/audit.log.1")
+	if err != nil {
+		b.Fatal("glob failed", err)
+	}
+	if len(files) == 0 {
+		b.Fatal("no files found")
+	}
+
+	for _, name := range files {
+		f, err := os.Open(name)
+		if err != nil {
+			b.Fatal(err)
+		}
+		defer f.Close()
+		s := bufio.NewScanner(bufio.NewReader(f))
+		for s.Scan() {
+			lines = append(lines, s.Text())
+		}
+	}
+	fields := map[string]field{}
+	data := map[string]string{}
+
+	for i := 0; i < b.N; i++ {
+		for _, line := range lines {
+			event, err := ParseLogLine(line)
+			if err == nil {
+				_ = NewStoredAuditMessageB(event, fields, data)
+			}
+		}
+	}
+
+	if err := pprof.WriteHeapProfile(mem); err != nil {
+		b.Fatal(err)
 	}
 }
 
@@ -227,50 +281,58 @@ func TestParseLogLineFromFiles(t *testing.T) {
 	}
 
 	for _, name := range files {
-		f, err := os.Open(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer f.Close()
-
-		// Read logs and parse events.
-		var events []*AuditMessage
-		s := bufio.NewScanner(bufio.NewReader(f))
-		var lineNum int
-		for s.Scan() {
-			line := s.Text()
-			lineNum++
-
-			event, err := ParseLogLine(line)
-			if err != nil && *update {
-				t.Logf("parsing failed at %v:%d on '%v' with error: %v",
-					name, lineNum, line, err)
-			}
-
-			events = append(events, event)
-		}
-
-		// Update golden files on -update.
-		if *update {
-			if err := writeGoldenFile(name, events); err != nil {
+		t.Run(name, func(t *testing.T) {
+			f, err := os.Open(name)
+			if err != nil {
 				t.Fatal(err)
 			}
-			continue
-		}
+			defer f.Close()
 
-		// Compare events to golden events.
-		goldenEvents, err := readGoldenFile(name + ".golden")
-		if err != nil {
-			t.Fatal(err)
-		}
+			// Read logs and parse events.
+			var events []*AuditMessage
+			s := bufio.NewScanner(bufio.NewReader(f))
+			var lineNum int
+			for s.Scan() {
+				line := s.Text()
+				lineNum++
 
-		for i, gold := range goldenEvents {
-			if events[i] != nil {
-				assert.Equal(t, gold, NewStoredAuditMessage(events[i]), "file: %v:%d", name, i+1)
-			} else {
-				assert.Nil(t, gold, "file: %v:%d", name, i+1)
+				event, err := ParseLogLine(line)
+				if err != nil && *update {
+					t.Logf("parsing failed at %v:%d on '%v' with error: %v",
+						name, lineNum, line, err)
+				}
+
+				if err == nil {
+					events = append(events, &event)
+				} else {
+					events = append(events, nil)
+				}
 			}
-		}
+
+			// Update golden files on -update.
+			if *update {
+				if err := writeGoldenFile(name, events); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+
+			// Compare events to golden events.
+			goldenEvents, err := readGoldenFile(name + ".golden")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			for i, gold := range goldenEvents {
+				t.Run(strconv.Itoa(i), func(t *testing.T) {
+					if events[i] != nil {
+						assert.Equal(t, gold, NewStoredAuditMessage(*events[i]), "file: %v:%d", name, i+1)
+					} else {
+						assert.Nil(t, gold, "file: %v:%d", name, i+1)
+					}
+				})
+			}
+		})
 	}
 }
 
@@ -284,11 +346,7 @@ type StoredAuditMessage struct {
 	Error      string            `json:"error,omitempty"`
 }
 
-func NewStoredAuditMessage(msg *AuditMessage) *StoredAuditMessage {
-	if msg == nil {
-		return nil
-	}
-
+func NewStoredAuditMessage(msg AuditMessage) *StoredAuditMessage {
 	// Ensure raw message has been parsed.
 	var errorMsg string
 	if _, err := msg.Data(); err != nil {
@@ -296,6 +354,24 @@ func NewStoredAuditMessage(msg *AuditMessage) *StoredAuditMessage {
 	}
 
 	return &StoredAuditMessage{
+		Timestamp:  msg.Timestamp,
+		RecordType: msg.RecordType,
+		Sequence:   msg.Sequence,
+		RawMessage: msg.RawData,
+		Tags:       msg.tags,
+		Data:       msg.data,
+		Error:      errorMsg,
+	}
+}
+
+func NewStoredAuditMessageB(msg AuditMessage, fields map[string]field, data map[string]string) StoredAuditMessage {
+	// Ensure raw message has been parsed.
+	var errorMsg string
+	if _, err := msg.DataB(fields, data); err != nil {
+		errorMsg = err.Error()
+	}
+
+	return StoredAuditMessage{
 		Timestamp:  msg.Timestamp,
 		RecordType: msg.RecordType,
 		Sequence:   msg.Sequence,
@@ -316,7 +392,7 @@ func writeGoldenFile(sourceName string, events []*AuditMessage) error {
 	var jsonEvents []*StoredAuditMessage
 	for _, event := range events {
 		if event != nil {
-			jsonEvents = append(jsonEvents, NewStoredAuditMessage(event))
+			jsonEvents = append(jsonEvents, NewStoredAuditMessage(*event))
 		} else {
 			jsonEvents = append(jsonEvents, nil)
 		}
@@ -349,7 +425,7 @@ func readGoldenFile(name string) ([]*StoredAuditMessage, error) {
 }
 
 func BenchmarkParseAuditHeader(b *testing.B) {
-	msg := []byte(syscallMsg)
+	msg := syscallMsg
 	for i := 0; i < b.N; i++ {
 		_, _, _, err := parseAuditHeader(msg)
 		if err != nil {
@@ -438,7 +514,7 @@ func BenchmarkAuditMessage_Data(b *testing.B) {
 }
 
 func Benchmark_arch(b *testing.B) {
-	d := map[string]*field{}
+	d := map[string]field{}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -448,7 +524,7 @@ func Benchmark_arch(b *testing.B) {
 }
 
 func Benchmark_setSyscallName(b *testing.B) {
-	d := map[string]*field{}
+	d := map[string]field{}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -458,7 +534,7 @@ func Benchmark_setSyscallName(b *testing.B) {
 }
 
 func Benchmark_setSyscallNameArchKey(b *testing.B) {
-	d := map[string]*field{
+	d := map[string]field{
 		"syscall": {"1", "1"},
 	}
 
@@ -470,7 +546,7 @@ func Benchmark_setSyscallNameArchKey(b *testing.B) {
 }
 
 func Benchmark_setSignalName(b *testing.B) {
-	d := map[string]*field{}
+	d := map[string]field{}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -480,7 +556,7 @@ func Benchmark_setSignalName(b *testing.B) {
 }
 
 func Benchmark_saddr(b *testing.B) {
-	d := map[string]*field{}
+	d := map[string]field{}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -490,7 +566,7 @@ func Benchmark_saddr(b *testing.B) {
 }
 
 func Benchmark_execveArgs(b *testing.B) {
-	d := map[string]*field{}
+	d := map[string]field{}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -500,7 +576,7 @@ func Benchmark_execveArgs(b *testing.B) {
 }
 
 func Benchmark_result(b *testing.B) {
-	d := map[string]*field{}
+	d := map[string]field{}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -510,7 +586,7 @@ func Benchmark_result(b *testing.B) {
 }
 
 func Benchmark_exit(b *testing.B) {
-	d := map[string]*field{}
+	d := map[string]field{}
 
 	b.ReportAllocs()
 	b.ResetTimer()

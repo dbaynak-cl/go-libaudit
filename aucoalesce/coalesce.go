@@ -169,7 +169,7 @@ type Object struct {
 // that all the messages in the slice have the same timestamp and sequence
 // number. An error is returned is msgs is empty or nil or only contains and EOE
 // (end-of-event) message.
-func CoalesceMessages(msgs []*auparse.AuditMessage) (*Event, error) {
+func CoalesceMessages(msgs []auparse.AuditMessage) (*Event, error) {
 	msgs = filterEOE(msgs)
 
 	var event *Event
@@ -178,7 +178,7 @@ func CoalesceMessages(msgs []*auparse.AuditMessage) (*Event, error) {
 	case 0:
 		return nil, errors.New("messages is empty")
 	case 1:
-		event, err = normalizeSimple(msgs[0])
+		event, err = normalizeSimple(&msgs[0])
 	default:
 		event, err = normalizeCompound(msgs)
 	}
@@ -194,7 +194,7 @@ func CoalesceMessages(msgs []*auparse.AuditMessage) (*Event, error) {
 // filterEOE returns a slice (backed by the given msgs slice) that does not
 // contain EOE (end-of-event) messages. EOE messages are sentinel messages used
 // to signal the completion of an event, but they carry no data.
-func filterEOE(msgs []*auparse.AuditMessage) []*auparse.AuditMessage {
+func filterEOE(msgs []auparse.AuditMessage) []auparse.AuditMessage {
 	if len(msgs) > 0 && msgs[len(msgs)-1].RecordType == auparse.AUDIT_EOE {
 		return msgs[:len(msgs)-1]
 	}
@@ -205,15 +205,15 @@ func normalizeSimple(msg *auparse.AuditMessage) (*Event, error) {
 	return newEvent(msg, nil), nil
 }
 
-func normalizeCompound(msgs []*auparse.AuditMessage) (*Event, error) {
+func normalizeCompound(msgs []auparse.AuditMessage) (*Event, error) {
 	var special, syscall *auparse.AuditMessage
 	for i, msg := range msgs {
 		if i == 0 && msg.RecordType != auparse.AUDIT_SYSCALL {
-			special = msg
+			special = &msg
 			continue
 		}
 		if msg.RecordType == auparse.AUDIT_SYSCALL {
-			syscall = msg
+			syscall = &msg
 			break
 		}
 	}
@@ -229,13 +229,13 @@ func normalizeCompound(msgs []*auparse.AuditMessage) (*Event, error) {
 		case auparse.AUDIT_SYSCALL:
 			delete(event.Data, "items")
 		case auparse.AUDIT_PATH:
-			addPathRecord(msg, event)
+			addPathRecord(&msg, event)
 		case auparse.AUDIT_SOCKADDR:
-			addSockaddrRecord(msg, event)
+			addSockaddrRecord(&msg, event)
 		case auparse.AUDIT_EXECVE:
-			addExecveRecord(msg, event)
+			addExecveRecord(&msg, event)
 		default:
-			addFieldsToEventData(msg, event)
+			addFieldsToEventData(&msg, event)
 		}
 	}
 

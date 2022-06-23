@@ -36,7 +36,7 @@ var errReassemblerClosed = errors.New("reassembler closed")
 type Stream interface {
 	// ReassemblyComplete notifies that a complete group of events has been
 	// received and provides those events.
-	ReassemblyComplete(msgs []*auparse.AuditMessage)
+	ReassemblyComplete(msgs []auparse.AuditMessage)
 
 	// EventsLost notifies that some events were lost. This is based on gaps
 	// in the sequence numbers of received messages. Lost events can be caused
@@ -85,11 +85,7 @@ func NewReassembler(maxInFlight int, timeout time.Duration, stream Stream) (*Rea
 
 // PushMessage pushes a new AuditMessage message into the Reassembler. Callbacks
 // may be triggered as a result.
-func (r *Reassembler) PushMessage(msg *auparse.AuditMessage) {
-	if msg == nil {
-		return
-	}
-
+func (r *Reassembler) PushMessage(msg auparse.AuditMessage) {
 	r.list.Put(msg)
 	evicted, lost := r.list.CleanUp()
 	r.callback(evicted, lost)
@@ -167,11 +163,11 @@ func (h *intHeap) Pop() interface{} {
 
 type event struct {
 	expireTime time.Time
-	msgs       []*auparse.AuditMessage
+	msgs       []auparse.AuditMessage
 	complete   bool
 }
 
-func (e *event) Add(msg *auparse.AuditMessage) {
+func (e *event) Add(msg auparse.AuditMessage) {
 	e.msgs = append(e.msgs, msg)
 
 	// These messages all signal the completion of an event.
@@ -245,7 +241,7 @@ func (l *eventList) Clear() ([]*event, int) {
 }
 
 // Put a new message in the list.
-func (l *eventList) Put(msg *auparse.AuditMessage) {
+func (l *eventList) Put(msg auparse.AuditMessage) {
 	l.Lock()
 	defer l.Unlock()
 
@@ -265,7 +261,7 @@ func (l *eventList) Put(msg *auparse.AuditMessage) {
 
 		e = &event{
 			expireTime: time.Now().Add(l.timeout),
-			msgs:       make([]*auparse.AuditMessage, 0, 4),
+			msgs:       make([]auparse.AuditMessage, 0, 4),
 		}
 		l.events[seq] = e
 	}
