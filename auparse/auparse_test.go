@@ -108,33 +108,33 @@ func TestGetAuditMessageType(t *testing.T) {
 func TestExtractKeyValuePairs(t *testing.T) {
 	tests := []struct {
 		in  string
-		out map[string]field
+		out map[string]Field
 	}{
 		{
 			`a=v b= b1='' b2="" c=? c1="?" c2='?' d=?, d1="?," d2='?,' e=(null) e1="(null)" e2='(null)'`,
-			map[string]field{
+			map[string]Field{
 				"a": newField("v"),
 			},
 		},
 		{
 			`msg=`,
-			map[string]field{},
+			map[string]Field{},
 		},
 		{
 			`msg=a=b`,
-			map[string]field{"a": newField("b")},
+			map[string]Field{"a": newField("b")},
 		},
 		{
 			`msg="a=b"`,
-			map[string]field{"a": newField("b")},
+			map[string]Field{"a": newField("b")},
 		},
 		{
 			`msg="a='a b'"`,
-			map[string]field{"a": {"'a b'", "a b"}},
+			map[string]Field{"a": {"'a b'", "a b"}},
 		},
 		{
 			`argc=4 a0="cat" a1="btest=test" a2="-f" a3="regex=8"'`,
-			map[string]field{
+			map[string]Field{
 				"argc": newField("4"),
 				"a0":   {`"cat"`, `cat`},
 				"a1":   {`"btest=test"`, `btest=test`},
@@ -144,28 +144,28 @@ func TestExtractKeyValuePairs(t *testing.T) {
 		},
 		{
 			`x='grep "test" file' y=z`,
-			map[string]field{
+			map[string]Field{
 				"x": {`'grep "test" file'`, `grep "test" file`},
 				"y": newField("z"),
 			},
 		},
 		{
 			`x="grep 'test' file" y=z`,
-			map[string]field{
+			map[string]Field{
 				"x": {`"grep 'test' file"`, `grep 'test' file`},
 				"y": newField("z"),
 			},
 		},
 		{
 			`x="grep \"test\" file" y=z`,
-			map[string]field{
+			map[string]Field{
 				"x": {`"grep \"test\" file"`, `grep \"test\" file`},
 				"y": newField("z"),
 			},
 		},
 		{
 			`x='grep \'test\' file' y=z`,
-			map[string]field{
+			map[string]Field{
 				"x": {`'grep \'test\' file'`, `grep \'test\' file`},
 				"y": newField("z"),
 			},
@@ -173,7 +173,7 @@ func TestExtractKeyValuePairs(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		out := map[string]field{}
+		out := map[string]Field{}
 		extractKeyValuePairs(tc.in, out)
 		assert.Equal(t, tc.out, out, "failed on: %v", tc.in)
 	}
@@ -181,7 +181,7 @@ func TestExtractKeyValuePairs(t *testing.T) {
 
 func Benchmark_extractKeyValuePairs(b *testing.B) {
 	const msg = `argc=4 a0="cat" a1="btest=test" a2="-f" a3="regex=8"' a4="qwerty asdfg \"zxcv\" asdf"`
-	out := make(map[string]field)
+	out := make(map[string]Field)
 	for i := 0; i < b.N; i++ {
 		extractKeyValuePairs(msg, out)
 	}
@@ -234,6 +234,8 @@ func BenchmarkParseLogLineFromFiles1(b *testing.B) {
 	}
 	defer pprof.StopCPUProfile()
 
+	b.ReportAllocs()
+
 	lines := make([]string, 0)
 	files, err := filepath.Glob("testdata/audit.log.1")
 	if err != nil {
@@ -254,9 +256,10 @@ func BenchmarkParseLogLineFromFiles1(b *testing.B) {
 			lines = append(lines, s.Text())
 		}
 	}
-	fields := map[string]field{}
+	fields := map[string]Field{}
 	data := map[string]string{}
 
+	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		for _, line := range lines {
 			event, err := ParseLogLine(line)
@@ -265,6 +268,7 @@ func BenchmarkParseLogLineFromFiles1(b *testing.B) {
 			}
 		}
 	}
+	b.StopTimer()
 
 	if err := pprof.WriteHeapProfile(mem); err != nil {
 		b.Fatal(err)
@@ -364,7 +368,7 @@ func NewStoredAuditMessage(msg AuditMessage) *StoredAuditMessage {
 	}
 }
 
-func NewStoredAuditMessageB(msg AuditMessage, fields map[string]field, data map[string]string) StoredAuditMessage {
+func NewStoredAuditMessageB(msg AuditMessage, fields map[string]Field, data map[string]string) StoredAuditMessage {
 	// Ensure raw message has been parsed.
 	var errorMsg string
 	if _, err := msg.DataB(fields, data); err != nil {
@@ -514,7 +518,7 @@ func BenchmarkAuditMessage_Data(b *testing.B) {
 }
 
 func Benchmark_arch(b *testing.B) {
-	d := map[string]field{}
+	d := map[string]Field{}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -524,7 +528,7 @@ func Benchmark_arch(b *testing.B) {
 }
 
 func Benchmark_setSyscallName(b *testing.B) {
-	d := map[string]field{}
+	d := map[string]Field{}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -534,7 +538,7 @@ func Benchmark_setSyscallName(b *testing.B) {
 }
 
 func Benchmark_setSyscallNameArchKey(b *testing.B) {
-	d := map[string]field{
+	d := map[string]Field{
 		"syscall": {"1", "1"},
 	}
 
@@ -546,7 +550,7 @@ func Benchmark_setSyscallNameArchKey(b *testing.B) {
 }
 
 func Benchmark_setSignalName(b *testing.B) {
-	d := map[string]field{}
+	d := map[string]Field{}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -556,7 +560,7 @@ func Benchmark_setSignalName(b *testing.B) {
 }
 
 func Benchmark_saddr(b *testing.B) {
-	d := map[string]field{}
+	d := map[string]Field{}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -566,7 +570,7 @@ func Benchmark_saddr(b *testing.B) {
 }
 
 func Benchmark_execveArgs(b *testing.B) {
-	d := map[string]field{}
+	d := map[string]Field{}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -576,7 +580,7 @@ func Benchmark_execveArgs(b *testing.B) {
 }
 
 func Benchmark_result(b *testing.B) {
-	d := map[string]field{}
+	d := map[string]Field{}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -586,7 +590,7 @@ func Benchmark_result(b *testing.B) {
 }
 
 func Benchmark_exit(b *testing.B) {
-	d := map[string]field{}
+	d := map[string]Field{}
 
 	b.ReportAllocs()
 	b.ResetTimer()

@@ -67,22 +67,22 @@ type AuditMessage struct {
 	Sequence   uint32           // Sequence parsed from payload.
 	RawData    string           // Raw message as a string.
 
-	fields map[string]field
-	offset int               // offset is the index into RawData where the header ends and message begins.
+	fields map[string]Field
 	data   map[string]string // The key value pairs parsed from the message.
+	offset int               // offset is the index into RawData where the header ends and message begins.
 	tags   []string          // The keys associated with the event (e.g. the values set in rules with -F key=exec).
 	error  error             // Error that occurred while parsing.
 }
 
-type field struct {
+type Field struct {
 	orig  string // Original field value parse from message (including quotes).
 	value string // Parsed and enriched value.
 }
 
-func newField(orig string) field  { return field{orig: orig, value: orig} }
-func (f *field) Orig() string     { return f.orig }
-func (f *field) Value() string    { return f.value }
-func (f *field) Set(value string) { f.value = value }
+func newField(orig string) Field  { return Field{orig: orig, value: orig} }
+func (f *Field) Orig() string     { return f.orig }
+func (f *Field) Value() string    { return f.value }
+func (f *Field) Set(value string) { f.value = value }
 
 // Data returns the key-value pairs that are contained in the audit message.
 // This information is parsed from the raw message text the first time this
@@ -90,10 +90,10 @@ func (f *field) Set(value string) { f.value = value }
 // map may be returned error is non-nil. A non-nil error is returned if there
 // was a failure parsing or enriching the data.
 func (m *AuditMessage) Data() (map[string]string, error) {
-	return m.DataB(map[string]field{}, map[string]string{})
+	return m.DataB(map[string]Field{}, map[string]string{})
 }
 
-func (m *AuditMessage) DataB(fields map[string]field, data map[string]string) (map[string]string, error) {
+func (m *AuditMessage) DataB(fields map[string]Field, data map[string]string) (map[string]string, error) {
 	if m.data != nil || m.error != nil {
 		return m.data, m.error
 	}
@@ -319,15 +319,15 @@ func isInterestingValue(v string) bool {
 	}
 }
 
-func saveKeyValue(key, origValue, value string, data map[string]field) {
+func saveKeyValue(key, origValue, value string, data map[string]Field) {
 	if key == "msg" {
 		extractKeyValuePairs(value, data)
 	} else if isInterestingValue(value) {
-		data[key] = field{origValue, value}
+		data[key] = Field{origValue, value}
 	}
 }
 
-func extractKeyValuePairs(msg string, data map[string]field) {
+func extractKeyValuePairs(msg string, data map[string]Field) {
 	type parseState int
 	const (
 		skipState parseState = iota
@@ -460,7 +460,7 @@ func enrichData(msg *AuditMessage) error {
 	return nil
 }
 
-func arch(data map[string]field) error {
+func arch(data map[string]Field) error {
 	field, found := data["arch"]
 	if !found {
 		return errArchKeyNotFound
@@ -476,7 +476,7 @@ func arch(data map[string]field) error {
 	return nil
 }
 
-func setSyscallName(data map[string]field) error {
+func setSyscallName(data map[string]Field) error {
 	field, found := data["syscall"]
 	if !found {
 		return errSyscallKeyNotFound
@@ -499,7 +499,7 @@ func setSyscallName(data map[string]field) error {
 	return nil
 }
 
-func setSignalName(data map[string]field) error {
+func setSignalName(data map[string]Field) error {
 	field, found := data["sig"]
 	if !found {
 		return errSigKeyNotFound
@@ -517,7 +517,7 @@ func setSignalName(data map[string]field) error {
 	return nil
 }
 
-func saddr(data map[string]field) error {
+func saddr(data map[string]Field) error {
 	field, found := data["saddr"]
 	if !found {
 		return errSaddrKeyNotFound
@@ -535,7 +535,7 @@ func saddr(data map[string]field) error {
 	return nil
 }
 
-func normalizeUnsetID(key string, data map[string]field) {
+func normalizeUnsetID(key string, data map[string]Field) {
 	field, found := data[key]
 	if !found {
 		return
@@ -548,7 +548,7 @@ func normalizeUnsetID(key string, data map[string]field) {
 	}
 }
 
-func hexDecode(key string, data map[string]field) error {
+func hexDecode(key string, data map[string]Field) error {
 	field, found := data[key]
 	if !found {
 		return errHexEncodeKeyNotFound
@@ -581,7 +581,7 @@ func hexDecode(key string, data map[string]field) error {
 	return nil
 }
 
-func execveArgs(data map[string]field) error {
+func execveArgs(data map[string]Field) error {
 	argc, found := data["argc"]
 	if !found {
 		return errArgcKeyNotFound
@@ -611,7 +611,7 @@ func execveArgs(data map[string]field) error {
 
 // parseSELinuxContext parses a SELinux security context of the form
 // 'user:role:domain:level:category'.
-func parseSELinuxContext(key string, data map[string]field) error {
+func parseSELinuxContext(key string, data map[string]Field) error {
 	field, found := data[key]
 	if !found {
 		return errSELinuxKeyNotFound
@@ -630,7 +630,7 @@ func parseSELinuxContext(key string, data map[string]field) error {
 	return nil
 }
 
-func result(data map[string]field) error {
+func result(data map[string]Field) error {
 	// Syscall messages use "success". Other messages use "res".
 	field, found := data["success"]
 	if !found {
@@ -666,17 +666,22 @@ func auditRuleKey(msg *AuditMessage) {
 		return
 	}
 
-	parts := strings.SplitN(field.Value(), "=", 2)
-	if len(parts) == 1 {
+	val := field.Value()
+	idx := strings.IndexByte(val, '=')
+	if idx == -1 {
 		// Handle key="net".
-		msg.tags = parts
-	} else if len(parts) == 2 {
+		msg.tags = []string{val}
+	} else if idx > 0 {
 		// Handle key="key=net".
-		msg.tags = parts[1:]
+		if idx < len(val)-1 {
+			msg.tags = []string{val[idx+1:]}
+		} else {
+			msg.tags = []string{""}
+		}
 	}
 }
 
-func exit(data map[string]field) error {
+func exit(data map[string]Field) error {
 	field, found := data["exit"]
 	if !found {
 		return errExitKeyNotFound
