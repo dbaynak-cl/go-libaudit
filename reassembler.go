@@ -127,7 +127,7 @@ func (r *Reassembler) Close() error {
 	return errReassemblerClosed
 }
 
-func (r *Reassembler) callback(events []*event, lost int) {
+func (r *Reassembler) callback(events []event, lost int) {
 	for _, e := range events {
 		r.stream.ReassemblyComplete(e.msgs)
 	}
@@ -187,7 +187,7 @@ func (e *event) IsExpired() bool {
 type eventList struct {
 	sync.Mutex
 	seqs    *intHeap
-	events  map[int]*event
+	events  map[int]event
 	lastSeq int
 	maxSize int
 	timeout time.Duration
@@ -198,7 +198,7 @@ func newEventList(maxSize int, timeout time.Duration) *eventList {
 	heap.Init(h)
 	return &eventList{
 		seqs:    h,
-		events:  make(map[int]*event, maxSize+1),
+		events:  make(map[int]event, maxSize+1),
 		maxSize: maxSize,
 		timeout: timeout,
 	}
@@ -214,12 +214,12 @@ func (l *eventList) remove() {
 
 // Clear removes all events from the list and returns the events and the number
 // of list events.
-func (l *eventList) Clear() ([]*event, int) {
+func (l *eventList) Clear() ([]event, int) {
 	l.Lock()
 	defer l.Unlock()
 
 	var lost int
-	var evicted []*event
+	var evicted []event
 	for {
 		if l.seqs.Len() == 0 {
 			break
@@ -258,23 +258,22 @@ func (l *eventList) Put(msg auparse.AuditMessage) {
 
 	if !found {
 		heap.Push(l.seqs, seq)
-
-		e = &event{
+		e = event{
 			expireTime: time.Now().Add(l.timeout),
-			msgs:       make([]auparse.AuditMessage, 0, 4),
+			msgs:       make([]auparse.AuditMessage, 0, 8),
 		}
-		l.events[seq] = e
 	}
 
 	e.Add(msg)
+	l.events[seq] = e
 }
 
-func (l *eventList) CleanUp() ([]*event, int) {
+func (l *eventList) CleanUp() ([]event, int) {
 	l.Lock()
 	defer l.Unlock()
 
 	var lost int
-	var evicted []*event
+	var evicted []event
 	for {
 		size := l.seqs.Len()
 		if size == 0 {

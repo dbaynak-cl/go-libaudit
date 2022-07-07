@@ -90,6 +90,9 @@ func (f *Field) Set(value string) { f.value = value }
 // map may be returned error is non-nil. A non-nil error is returned if there
 // was a failure parsing or enriching the data.
 func (m *AuditMessage) Data() (map[string]string, error) {
+	if m.data != nil || m.error != nil {
+		return m.data, m.error
+	}
 	return m.DataB(map[string]Field{}, map[string]string{})
 }
 
